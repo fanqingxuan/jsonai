@@ -1,5 +1,5 @@
 {
-    "name": "fanqingxuan/jsonai",
+    "name": "jsonai/jsonai",
     "description": "JsonAI: standalone PHP 7.2.6 agent harness with tools, streaming, threads and persistent memory",
     "type": "library",
     "require": {
