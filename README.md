@@ -4,11 +4,9 @@
 
 应用定义 Agent、Prompt 和 Tool，通过 Agent 的 run/stream 等方法调用；Harness 作为执行引擎，负责模型与工具循环、会话、上下文、流式事件、运行限制及检查点。工具通过 `ToolClass::class` 注册。框架不引用 SCM、Laravel、宿主容器、Session、业务数据库类或固定项目目录，也不会在安装时建表、启动 Worker 或修改宿主配置。
 
-当前代码尚未发布到 Packagist。包名为 `jsonai/jsonai`，命名空间为 `JsonAI`。不包含多 Agent 编排、Supervisor、Human-in-the-Loop 或独立设计模式模块。
+当前代码尚未发布到 Packagist。包名为 `fanqingxuan/jsonai`，命名空间为 `JsonAI`。不包含多 Agent 编排、Supervisor、Human-in-the-Loop 或独立设计模式模块。
 
-从 `fanqingxuan/jsonai` 迁移时，将应用的依赖名称改为 `jsonai/jsonai`，通过 Composer 更新锁文件与自动加载；PHP 命名空间仍为 `JsonAI\`，业务代码无需改名，安装目录变为 `vendor/jsonai/jsonai/`。GitHub 仓库地址与 Composer 包名不需要相同。
-
-从旧名称迁移时，将应用的 Composer 依赖 `portable-agent/agent` 替换为 `jsonai/jsonai`，并将 PHP 中的 `PortableAgent\` 引用改为 `JsonAI\`，重新生成 Composer 自动加载文件。升级前先完成已有活跃 Run；命名空间及工具类文件变化会使旧 Run 的定义快照校验不通过。存储格式标识 `portable-agent/state`、Redis 默认前缀 `portable_agent:` 及示例默认数据目录保留，已有会话和记忆数据仍可读取；已终结 Run 的幂等重提仍需通过定义快照校验。
+从旧名称迁移时，将应用的 Composer 依赖 `portable-agent/agent` 替换为 `fanqingxuan/jsonai`，并将 PHP 中的 `PortableAgent\` 引用改为 `JsonAI\`，重新生成 Composer 自动加载文件。升级前先完成已有活跃 Run；命名空间及工具类文件变化会使旧 Run 的定义快照校验不通过。存储格式标识 `portable-agent/state`、Redis 默认前缀 `portable_agent:` 及示例默认数据目录保留，已有会话和记忆数据仍可读取；已终结 Run 的幂等重提仍需通过定义快照校验。
 
 ## 安装与运行要求
 
@@ -28,29 +26,29 @@
       "url": "../agent",
       "options": {
         "symlink": false,
-        "versions": {"jsonai/jsonai": "0.1.x-dev"}
+        "versions": {"fanqingxuan/jsonai": "0.1.x-dev"}
       }
     }
   ],
   "require": {
-    "jsonai/jsonai": "0.1.x-dev"
+    "fanqingxuan/jsonai": "0.1.x-dev"
   }
 }
 ```
 
-随后执行 `composer update jsonai/jsonai`。`symlink: false` 将包复制到 `vendor`，便于验证应用并不依赖原 SCM 目录。
+随后执行 `composer update fanqingxuan/jsonai`。`symlink: false` 将包复制到 `vendor`，便于验证应用并不依赖原 SCM 目录。
 
-### GitHub VCS 安装
+### 自有 VCS 安装
 
-Composer 包名为 `jsonai/jsonai`，源码仓库仍为 `https://github.com/fanqingxuan/jsonai.git`。尚未发布到 Packagist 时，在应用中显式配置该仓库，使用当前的 `master` 开发分支：
+先把包单独放入自己的 Git 仓库。下面地址是占位示例，假设该仓库存在 `main` 分支：
 
 ```json
 {
   "repositories": [
-    {"type": "vcs", "url": "https://github.com/fanqingxuan/jsonai.git"}
+    {"type": "vcs", "url": "https://git.example.com/your-team/agent.git"}
   ],
   "require": {
-    "jsonai/jsonai": "dev-master"
+    "fanqingxuan/jsonai": "dev-main as 0.1.x-dev"
   }
 }
 ```
