@@ -1,0 +1,26 @@
+{
+    "name": "fanqingxuan/jsonai",
+    "description": "JsonAI: standalone PHP 7.2.6 agent harness with tools, streaming, threads and persistent memory",
+    "type": "library",
+    "require": {
+        "php": ">=7.2.6",
+        "ext-json": "*",
+        "psr/log": "^1.1"
+    },
+    "require-dev": {
+        "nikic/php-parser": "^4.19"
+    },
+    "suggest": {
+        "ext-curl": "Required by the default HTTP transport",
+        "ext-redis": "Required by Redis stores",
+        "ext-pdo_mysql": "Required by MySQL stores",
+        "ext-pdo_pgsql": "Required by PostgreSQL stores"
+    },
+    "autoload": {"psr-4": {"JsonAI\\": "src/"}},
+    "autoload-dev": {"psr-4": {"JsonAI\\Tests\\": "tests/"}},
+    "scripts": {
+        "test": "@php tests/run.php",
+        "check": ["@test", "@php bin/check-compatibility.php"]
+    },
+    "config": {"platform": {"php": "7.2.6"}, "sort-packages": true}
+}

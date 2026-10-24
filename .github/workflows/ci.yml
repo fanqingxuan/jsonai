@@ -1,0 +1,111 @@
+name: JsonAI package
+
+'on':
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} with disposable stores
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.2.6', '7.4', '8.2']
+    services:
+      redis:
+        image: redis:6.2
+        ports:
+          - 16389:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      mysql:
+        # Native password authentication is compatible with the exact 7.2.6 mysqlnd.
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: disposable-root-password
+          MYSQL_DATABASE: agent_test
+          MYSQL_USER: agent_test
+          MYSQL_PASSWORD: disposable-test-password
+        ports:
+          - 13306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent_test
+          POSTGRES_PASSWORD: disposable-test-password
+          # Stretch libpq predates SCRAM. This isolated CI service is destroyed after the job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent_test -d agent_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PORTABLE_AGENT_TEST_REDIS: '1'
+      PORTABLE_AGENT_TEST_REDIS_PORT: '16389'
+      PORTABLE_AGENT_TEST_SQL_DISPOSABLE: '1'
+      PORTABLE_AGENT_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=13306;dbname=agent_test;charset=utf8mb4'
+      PORTABLE_AGENT_TEST_MYSQL_USER: agent_test
+      PORTABLE_AGENT_TEST_MYSQL_PASSWORD: disposable-test-password
+      PORTABLE_AGENT_TEST_PGSQL_DSN: 'pgsql:host=127.0.0.1;port=15432;dbname=agent_test'
+      PORTABLE_AGENT_TEST_PGSQL_USER: agent_test
+      PORTABLE_AGENT_TEST_PGSQL_PASSWORD: disposable-test-password
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Composer host and supported PHP runtimes
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php == '7.2.6' && '8.2' || matrix.php }}
+          extensions: json, tokenizer, curl, mbstring, pcntl, pdo_mysql, pdo_pgsql, redis
+          tools: composer:2.8
+          coverage: none
+        env:
+          fail-fast: true
+      - name: Install the independent package
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Validate package metadata
+        # Licensing/publishing policy is chosen by the package owner; metadata errors still fail.
+        run: composer validate
+      - name: Test PHP 7.4 and 8.2
+        if: matrix.php != '7.2.6'
+        run: |
+          php -v
+          composer check-platform-reqs
+          php bin/check-compatibility.php --self-test
+          php bin/check-compatibility.php
+          php tests/run.php
+      - name: Build exact PHP 7.2.6 runtime
+        if: matrix.php == '7.2.6'
+        run: docker build --tag jsonai-php72 --file .github/php72.Dockerfile .
+      - name: Test exact PHP 7.2.6 with all store integrations
+        if: matrix.php == '7.2.6'
+        run: |
+          docker run --rm --network host --volume "$PWD:/package" --workdir /package \
+            --env PORTABLE_AGENT_TEST_REDIS --env PORTABLE_AGENT_TEST_REDIS_PORT \
+            --env PORTABLE_AGENT_TEST_SQL_DISPOSABLE \
+            --env PORTABLE_AGENT_TEST_MYSQL_DSN --env PORTABLE_AGENT_TEST_MYSQL_USER --env PORTABLE_AGENT_TEST_MYSQL_PASSWORD \
+            --env PORTABLE_AGENT_TEST_PGSQL_DSN --env PORTABLE_AGENT_TEST_PGSQL_USER --env PORTABLE_AGENT_TEST_PGSQL_PASSWORD \
+            jsonai-php72 sh -eu -c '
+              php -r '\''if (PHP_VERSION !== "7.2.6") { fwrite(STDERR, "Expected exact PHP 7.2.6\n"); exit(1); }'\''
+              php -v
+              php bin/check-compatibility.php --self-test
+              php bin/check-compatibility.php
+              php tests/run.php
+            '
