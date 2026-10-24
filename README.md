@@ -2,7 +2,7 @@
 
 一个可以独立迁移、通过 Composer 接入的 PHP 单 Agent 框架，最低运行版本为 **PHP 7.2.6**。
 
-应用定义 Agent、Prompt 和 Tool；Harness 负责模型与工具循环、会话、上下文、流式事件、运行限制及检查点。工具通过 `ToolClass::class` 注册。框架不引用 SCM、Laravel、宿主容器、Session、业务数据库类或固定项目目录，也不会在安装时建表、启动 Worker 或修改宿主配置。
+应用定义 Agent、Prompt 和 Tool，通过 Agent 的 run/stream 等方法调用；Harness 作为执行引擎，负责模型与工具循环、会话、上下文、流式事件、运行限制及检查点。工具通过 `ToolClass::class` 注册。框架不引用 SCM、Laravel、宿主容器、Session、业务数据库类或固定项目目录，也不会在安装时建表、启动 Worker 或修改宿主配置。
 
 当前代码尚未发布到 Packagist。包名为 `fanqingxuan/jsonai`，命名空间为 `JsonAI`。不包含多 Agent 编排、Supervisor、Human-in-the-Loop 或独立设计模式模块。
 
@@ -137,20 +137,23 @@ $agent = Agent::create('inventory')
 $harness = new AgentHarness(new FileStore(__DIR__ . '/var/agent/state'), [
     'logger' => new FileLogger(__DIR__ . '/var/agent/logs', 'info', 14),
 ]);
+$agent = $agent->withHarness($harness);
 
 $context = RequestContext::create('thread-001')
     ->withScope('tenant-001')
     ->withIdentity(['tenant_id' => 'tenant-001', 'user_id' => 'user-001'])
     ->withRequestId('request-001');
-$result = $harness->run($agent, '查询 tea 的库存', $context);
+$result = $agent->run('查询 tea 的库存', $context);
 echo $result->text . PHP_EOL;
 ```
 
-Agent 的链式配置方法返回新实例，应像上面一样链式调用或接住返回值。默认 `new AgentHarness()` 使用进程内 `InMemoryStore` 和 `NullLogger`；需要跨请求恢复时，必须显式注入持久化 Store。
+Agent 的链式配置方法（包括 `withHarness()`）返回新实例，应像上面一样链式调用或接住返回值。应用启动或工厂中绑定一次 Harness，业务代码通过 Agent 调用。未绑定就调用运行接口会抛出 `LogicException`，不会隐式创建存储。显式使用 `new AgentHarness()` 时默认是进程内 `InMemoryStore` 和 `NullLogger`；需要跨请求恢复时，必须注入持久化 Store。
 
-`run($agent, $message, $context)` 直接接收用户输入；`$message` 可以是字符串或 user 角色的 `Message`。`stream($agent, $message, $context, $onEvent)` 与 `submit($agent, $message, $context)` 使用相同参数约定。`RequestContext` 集中管理会话、scope/identity、可选 requestId、客户端 IP 哈希，并通过 `withVariables()` / `withOptions()` 设置提示词变量和本次运行限制；这些链式方法均返回新实例。内部 `RunRequest` 仅用于请求快照，`RunContext` 管理租约、Run ID 和截止时间。
+Agent 只保存可复用的定义和运行依赖，不保存本次 message、RequestContext 或 RunResult。克隆后的 Agent 保留原 Harness 引用；`withHarness($otherHarness)` 返回绑定另一引擎的新 Agent，不改变原对象。
 
-未显式设置 `requestId` 时，每次 run/stream/submit 调用都生成新 ID，基础上下文可以复用于连续对话。幂等重试需通过 `withRequestId()` 显式指定相同 ID，并保持输入和配置相同；复用不带 requestId 的 context 不代表重试。旧平铺检查点仍可读取，`resume()` 从检查点恢复输入。旧调用 `run($agent, new RunRequest($message, $context))` 需迁移为 `run($agent, $message, $context)`，原 Request 上的变量和限制移到 context。
+`$agent->run($message, $context)` 直接接收用户输入；`$message` 可以是字符串或 user 角色的 `Message`。`$agent->stream($message, $context, $onEvent)` 与 `$agent->submit($message, $context)` 使用相同参数约定。`RequestContext` 集中管理会话、scope/identity、可选 requestId、客户端 IP 哈希，并通过 `withVariables()` / `withOptions()` 设置提示词变量和本次运行限制；这些链式方法均返回新实例。内部 `RunRequest` 仅用于请求快照，`RunContext` 管理租约、Run ID 和截止时间。
+
+未显式设置 `requestId` 时，每次 run/stream/submit 调用都生成新 ID，基础上下文可以复用于连续对话。幂等重试需通过 `withRequestId()` 显式指定相同 ID，并保持输入和配置相同；复用不带 requestId 的 context 不代表重试。旧平铺检查点仍可读取，`resume()` 从检查点恢复输入。已有 `$harness->run($agent, $message, $context)` 等底层接口保持兼容；迁移时先绑定 Harness，再改用 Agent 入口即可。更早的 RunRequest 调用形式需把 message 和 context 拆开，原 Request 上的变量和限制移到 context。
 
 ## Agent、Provider、Prompt 和 Message
 
@@ -208,7 +211,8 @@ $agent = Agent::create('assistant')
     ->modelOptions(['thinking' => ['type' => 'enabled']]);
 // 按需追加 ->tools([YourTool::class]) 或 ->outputSchema($schema)。
 $context = RequestContext::create('thread-001')->withScope('tenant-001');
-$result = (new AgentHarness())->run($agent, '你好', $context);
+$agent = $agent->withHarness(new AgentHarness()); // 仅用于单进程示例；跨请求会话请注入持久化 Store。
+$result = $agent->run('你好', $context);
 echo $result->text;
 ```
 
@@ -271,7 +275,7 @@ $context = RequestContext::create('thread-002')
     ->withIdentity(['tenant_id' => 'tenant-001', 'user_id' => 'user-001'])
     ->withVariables(['domain' => '供应链', 'language' => '中文'])
     ->withOptions(['max_iterations' => 4]);
-$result = $harness->run($agent, '查询库存', $context);
+$result = $agent->run('查询库存', $context);
 ```
 
 多角色模板使用 `new TemplatePrompt([['role' => 'system', 'content' => '...'], ...], $schema)`。变量只替换内容，不改变角色，不执行 PHP，也不递归解释变量内容中的模板。模板和身份信息由可信应用配置，普通用户文本直接传给 run/stream/submit 的 message 参数。
@@ -318,6 +322,7 @@ $harness = new AgentHarness($store, [
     'resolver' => $resolver,
     'executor' => new ToolExecutor(null, $policy),
 ]);
+$agent = $agent->withHarness($harness);
 ```
 
 上面的容器和授权服务属于应用，不是框架依赖。工厂应返回本次运行使用的工具实例，避免共享实例带入其他请求的状态。默认策略允许执行已注册工具，不会代替业务系统判断门店、订单或租户资源权限。`CallbackToolPolicy` 仅在回调明确返回 `true` 时放行。
@@ -335,12 +340,12 @@ $harness = new AgentHarness($store, [
 复用相同的 `scope`、`threadId`、Agent 名称和身份即可连续对话；每次用户输入直接传给 `run()`，使用新的 requestId（未指定时由框架生成）。同一个 Thread 只允许一个活跃 Run。身份、Agent 或请求指纹不匹配时拒绝继续。
 
 ```php
-$history = $harness->threads()->messages('tenant-001', 'thread-001');
-$checkpoint = $harness->threads()->run('tenant-001', 'thread-001', $result->runId);
-$harness->deleteThread('tenant-001', 'thread-001');
+$history = $agent->threads()->messages('tenant-001', 'thread-001');
+$checkpoint = $agent->threads()->run('tenant-001', 'thread-001', $result->runId);
+$agent->deleteThread($context);
 ```
 
-删除活跃 Thread 会被拒绝。`deleteThread()` 删除原始消息、Run 检查点、工具台账、事件，并清理对应短期记忆；长期记忆不自动删除，应用按自己的事实保留规则显式删除。HTTP 接口调用 `threads()`、`cancel()`、`replay()`、`deleteThread()` 前，应校验请求者对该 scope/Thread 的访问权限。
+删除活跃 Thread 会被拒绝。`deleteThread()` 删除原始消息、Run 检查点、工具台账、事件，并清理对应短期记忆；长期记忆不自动删除，应用按自己的事实保留规则显式删除。HTTP 接口调用 `threads()`、`cancel()`、`replay()`、`deleteThread()` 前，应校验请求者对该 scope/Thread 的访问权限；这些管理接口不会因为传入 RequestContext 就自动完成业务鉴权。
 
 | 数据 | 实际归属与默认行为 |
 |---|---|
@@ -366,6 +371,7 @@ $harness = new AgentHarness($store, [
     'short_memory' => $shortMemory,
     'long_memory' => $longMemory,
 ]);
+$agent = $agent->withHarness($harness);
 ```
 
 Store 可以共用同一实例，运行状态和两类记忆通过不同 namespace 隔离；也可以配置不同连接或目录。
@@ -415,7 +421,7 @@ PostgreSQL 对应使用 `PostgresShortTermMemory` / `PostgresLongTermMemory`。�
 
 ```php
 // 与 Harness 自动检索一致的作用域：scope + 完整身份 + Agent 名称。
-$memoryScope = $harness->memoryScope($agent, $context);
+$memoryScope = $agent->memoryScope($context);
 $record = $longMemory->put(
     $memoryScope,
     'preferred_language',
@@ -444,7 +450,7 @@ Harness 只在注入长期记忆后自动读取相关记录，**不会默认把�
 use JsonAI\Event\SseEncoder;
 
 $encoder = new SseEncoder();
-$result = $harness->stream($agent, '查询库存', $context, function (array $event) use ($encoder): void {
+$result = $agent->stream('查询库存', $context, function (array $event) use ($encoder): void {
     echo $encoder->encode($event);
     // HTTP 应用自行设置 Content-Type: text/event-stream，并决定何时 flush()。
 });
@@ -461,7 +467,7 @@ $result = $harness->stream($agent, '查询库存', $context, function (array $ev
 文本增量位于 `message.delta` 的 `data.delta`；`message.completed.data.text` 是该消息的完整文本，用于校对或替换，不应再次追加到已经累计的增量后面。`message.completed` 后仍可能调用工具；以终态 `run.*` 判断本次运行结束。消息及运行结果先持久化，再交付相应事件。回调失败会按 `delivery_failed` 处理，已发生的业务副作用不会撤销。
 
 ```php
-$harness->replay($scope, $threadId, $runId, $lastSequence, function (array $event) use ($encoder): void {
+$agent->replay($runId, $context, $lastSequence, function (array $event) use ($encoder): void {
     echo $encoder->encode($event);
 });
 ```
@@ -503,7 +509,7 @@ $agent = $agent->options([
 `timeout` 以检查点记录的累计执行耗时计算，排队及恢复前的等待时间不计入；恢复继续消耗剩余预算。它不是 PHP 进程的强制终止器。同步 Tool 需要在长任务中调用 `isCancelled()` / `progress()` 并设置自身网络、数据库超时；框架不能强杀正在阻塞的普通 PHP 函数。工具阻塞超过租约时，旧执行者不得继续写入检查点，已经提交的外部业务操作仍需幂等或对账处理。
 
 ```php
-$harness->cancel($scope, $threadId, $runId);
+$agent->cancel($runId, $context);
 ```
 
 排队 Run 可以直接进入 cancelled；运行中 Run 在检查点或合作式检查时停止。取消不撤销已完成工具。
@@ -517,14 +523,13 @@ $harness->cancel($scope, $threadId, $runId);
 ## 检查点、恢复与 Worker
 
 ```php
-$queued = $harness->submit($agent, '查询库存', $context);
+$queued = $agent->submit('查询库存', $context);
 
 // 可在另一个进程重建相同 Agent、Store 和服务配置后执行。
-$result = $harness->resume(
-    $agent, $context->getScope(), $context->getThreadId(),
-    $queued->runId, $context->getIdentity()
-);
+$result = $agent->resume($queued->runId, $context);
 ```
+
+`resume($runId, $context, $onEvent = null)` 仅使用 context 中的 scope、threadId 和可信 identity 定位、校验 Run；输入、提示词变量和运行限制来自原检查点，恢复时不能用新 context 覆盖。绑定另一 Harness 不改变 Agent 定义指纹，但恢复仍须连接同一存储并保持兼容的服务配置。
 
 `submit()` 只持久化待执行 Run，不启动进程、不自动投递消息队列。`Bridge\Worker` 可适配已有队列：
 
@@ -552,13 +557,14 @@ $result = $worker->handle($scope, $threadId, $runId, $trustedIdentity);
 $harness = new AgentHarness($store, [
     'logger' => new \JsonAI\Log\FileLogger(__DIR__ . '/var/log/agent', 'info', 14),
 ]);
+$agent = $agent->withHarness($harness);
 
 // 客户端 IP 由应用从可信请求信息中提取并显式传入；CLI/后台任务可不设置。
 $context = RequestContext::create('thread-001')
     ->withScope('tenant-001')
     ->withIdentity(['user_id' => 'user-001'])
     ->withClientIp('192.0.2.1');
-$result = $harness->run($agent, '查询库存', $context);
+$result = $agent->run('查询库存', $context);
 ```
 
 `FileLogger` 固定输出 **JSONL**：UTF-8、无 BOM，每行一个完整 JSON 对象，以换行符结束；消息内部的换行和制表符会转义。文件名格式为 `agent-{UTC时间戳含6位微秒}-{thread_id}-{client_ip_sha256}-{run_hash}.jsonl`，例如时间戳部分为 `20261024T080000.125000Z`。

@@ -40,17 +40,20 @@ $agent = Agent::create('recovery-example')->provider($provider, $config['model']
 $identity = ['user_id' => 'demo-user'];
 $services = ['logger' => new FileLogger($config['data_dir'] . '/logs')];
 $harness = new AgentHarness(new FileStore($config['data_dir'] . '/threads'), $services);
+$agent = $agent->withHarness($harness);
+$context = RequestContext::create($config['thread'])->withScope('example')->withIdentity($identity);
 if (isset($options['run-id'])) {
     $runId = $options['run-id'];
 } else {
-    $queued = $harness->submit($agent, '从检查点恢复后回复。', RequestContext::create($config['thread'])->withScope('example')->withIdentity($identity));
+    $queued = $agent->submit('从检查点恢复后回复。', $context);
     $runId = $queued->runId;
     echo 'queued_run_id=' . $runId . "\n";
     if (array_key_exists('submit-only', $options)) { exit(0); }
 }
 // A different process constructs the same definition, storage configuration and trusted identity.
 $workerHarness = new AgentHarness(new FileStore($config['data_dir'] . '/threads'), $services);
-$result = $workerHarness->resume($agent, 'example', $config['thread'], $runId, $identity);
+$workerAgent = $agent->withHarness($workerHarness);
+$result = $workerAgent->resume($runId, $context);
 echo $result->text . "\n";
 echo 'run_id=' . $result->runId . ' status=' . $result->status . "\n";
 if (!$result->isSuccessful()) { fwrite(STDERR, '结束原因：' . $result->finishReason . "\n"); exit(1); }

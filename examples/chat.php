@@ -83,11 +83,12 @@ $harness = new AgentHarness(new FileStore($config['data_dir'] . '/threads'), [
     'short_memory' => new FileShortTermMemory($config['data_dir'] . '/short-memory'),
     'long_memory' => new FileLongTermMemory($config['data_dir'] . '/long-memory'),
 ]);
+$agent = $agent->withHarness($harness);
 $context = RequestContext::create($config['thread'])
     ->withScope('example')
     ->withIdentity(['user_id' => 'demo-user'])
     ->withRequestId(isset($options['request-id']) ? $options['request-id'] : null);
-$result = $harness->run($agent, $config['message'], $context);
+$result = $agent->run($config['message'], $context);
 echo $result->text . "\n";
 echo 'run_id=' . $result->runId . ' status=' . $result->status . "\n";
 if (!$result->isSuccessful()) {

@@ -74,13 +74,14 @@ $provider = OpenAICompatibleProvider::deepSeek($key, $transport, $baseUrl);
 $agent = Agent::create('deepseek-example')->provider($provider, $model)->tools([DeepSeekExampleInventoryTool::class])
     ->modelOptions(['thinking' => ['type' => 'enabled']]);
 $harness = new AgentHarness(new FileStore($directory . '/threads'), ['logger' => new FileLogger($directory . '/logs')]);
+$agent = $agent->withHarness($harness);
 $message = $options['message'] ?? '使用工具查询 tea 库存，说明这是演示数据。';
 $context = RequestContext::create($options['thread'] ?? 'deepseek-demo')->withScope('example');
 if ($stream) {
-    $result = $harness->stream($agent, $message, $context, function (array $event): void {
+    $result = $agent->stream($message, $context, function (array $event): void {
         if ($event['type'] === 'message.delta') { echo $event['data']['delta']; }
     });
     echo "\n";
-} else { $result = $harness->run($agent, $message, $context); echo $result->text . "\n"; }
+} else { $result = $agent->run($message, $context); echo $result->text . "\n"; }
 echo 'run_id=' . $result->runId . ' status=' . $result->status . "\n";
 if (!$result->isSuccessful()) { fwrite(STDERR, '结束原因：' . $result->finishReason . "\n"); exit(1); }

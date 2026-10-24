@@ -37,8 +37,9 @@ if (array_key_exists('live', $options)) {
 }
 $agent = Agent::create('stream-example')->provider($provider, $config['model'])->prompt(TemplatePrompt::system('请用简洁中文回答。'));
 $harness = new AgentHarness(new FileStore($config['data_dir'] . '/threads'), ['logger' => new FileLogger($config['data_dir'] . '/logs')]);
+$agent = $agent->withHarness($harness);
 $sse = array_key_exists('sse', $options);
-$result = $harness->stream($agent, $config['message'], RequestContext::create($config['thread'])->withScope('example'), function (array $event) use ($sse): void {
+$result = $agent->stream($config['message'], RequestContext::create($config['thread'])->withScope('example'), function (array $event) use ($sse): void {
     if ($sse) {
         echo 'id: ' . $event['sequence'] . "\n";
         echo 'event: ' . $event['type'] . "\n";
